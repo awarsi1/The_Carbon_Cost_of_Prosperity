@@ -12,7 +12,9 @@ The analysis highlights the structural link between economic growth and environm
 
 ## Data Sources  
 - CO₂ emissions per capita: Our World in Data (OWID).
-- GDP per capita: World Bank
+- GDP per capita: World Bank.
+- GDP Purchasing Power Parity (PPP) estimates: International Monetary Fund (IMF).
+- Global Temprature Anomaly data: Our World in Data (OWID).
 
 ## Methods  
 - Data cleaning and merging (Our World in Data, World Bank)  
