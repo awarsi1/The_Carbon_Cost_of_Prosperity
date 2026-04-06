@@ -1,0 +1,804 @@
+
+---
+title: "The Carbon Cost of Prosperity"
+subtitle: "Examining the Development–Emission Tradeoff"
+author: "Aiyan Warsi"
+date: "July 16th, 2025"
+output:
+  xaringan::moon_reader:
+    css: ["default", "custom.css"]
+    lib_dir: libs
+    nature:
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+---
+
+```{r themer, include=FALSE}
+
+library(xaringanthemer)
+file.exists("images/titlepic.jpg")
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_knit$set(root.dir = "..")
+
+
+library(htmlwidgets)
+library(plotly)
+library(ggplot2)
+library(scales)
+library(dplyr)
+library(tidyr)
+library(maps)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(skimr)
+library(stargazer)
+library(xaringan)
+library(DT)
+library(viridis)
+library(ggrepel)
+library(tibble)
+library(knitr)
+library(kableExtra)
+library(htmltools)
+
+```
+
+```{r data-loading, include=FALSE}
+
+carbon <- read.csv("data/raw/owid-co2-data.csv")
+ppp_data <- read.csv("data/raw/API_NY.GDP.PCAP.PP.CD_DS2_en_csv_v2_37774.csv", skip = 4)
+
+
+ppp_long <- ppp_data %>%
+  select(Country.Name, Country.Code , starts_with("X")) %>% 
+  pivot_longer(cols = starts_with("X"), 
+               names_to = "year", 
+               values_to = "gdp_per_capita")
+  
+ppp_clean <- ppp_long %>% 
+  mutate(year = as.numeric(gsub("X", "", year))) %>%
+  rename(iso_code = Country.Code, 
+         country = Country.Name) %>%
+ 
+  mutate(country = case_when(
+    country == "Brunei Darussalam" ~ "Brunei",
+    TRUE ~ country
+  )) 
+
+combined_data <- carbon %>%
+  left_join(ppp_clean, by = c("country", "year"))
+
+```
+
+
+# The planet is heating up fast, we're running out of time to act.
+
+
+- Global temperatures have **risen by over 1.5°C since pre-industrial times**, with the steepest increases occurring in the last four decades. 
+
+
+```{r temp_change,echo=FALSE, fig.width=11, fig.height=5}
+library(plotly)
+library(dplyr)
+
+temp_anomaly <- read.csv("data/raw/temperature-anomaly.csv")
+
+temp_anomaly_clean <- temp_anomaly %>%
+  rename(
+    Temperature_Anomaly = Global.average.temperature.anomaly.relative.to.1861.1890,
+    Lower_Bound = Lower.bound.of.the.annual.temperature.anomaly..95..confidence.interval.,
+    Upper_Bound = Upper.bound.of.the.annual.temperature.anomaly..95..confidence.interval.
+  ) %>%
+  mutate(
+    hover_text = paste(
+      "<b>Year:</b>", Year, "<br>",
+      "<span style='color:red'>• Upper Bound:</span>", round(Upper_Bound, 2), "°C<br>",
+      "<span style='color:black'>• Average:</span>", round(Temperature_Anomaly, 2), "°C<br>",
+      "<span style='color:red'>• Lower Bound:</span>", round(Lower_Bound, 2), "°C"
+    )
+  )
+
+# Create custom y-axis labels with °C
+y_ticks <- seq(floor(min(temp_anomaly_clean$Lower_Bound, na.rm = TRUE)), 
+              ceiling(max(temp_anomaly_clean$Upper_Bound, na.rm = TRUE)), 
+              by = 0.2)
+y_labels <- paste0(y_ticks, "°C")
+
+# Custom x-axis labels (show every 20 years)
+x_ticks <- seq(1860, 2020, by = 10)
+x_labels <- ifelse(x_ticks %% 5 == 0, as.character(x_ticks), "")  # Show 1860, 1900, 1940, 1980, 2020
+
+temp_anomaly_plot <- plot_ly(temp_anomaly_clean, x = ~Year, height = 400) %>%
+  add_ribbons(
+    ymin = ~Lower_Bound, 
+    ymax = ~Upper_Bound, 
+    name = 'Confidence Interval',
+    line = list(color = 'transparent'),
+    fillcolor = 'rgba(255, 0, 0, 0.2)',
+    hoverinfo = 'none',
+    showlegend = FALSE
+  ) %>%
+  add_lines(
+    y = ~Temperature_Anomaly, 
+    name = 'Average Anomaly',
+    line = list(color = 'black', width = 2),
+    hoverinfo = 'text',
+    text = ~hover_text,
+    showlegend = FALSE
+  ) %>%
+  add_segments(
+    x = 1855, xend = 2025,
+    y = 0, yend = 0,
+    line = list(color = "gray", width = 1, dash = "solid"),
+    name = "0°C Baseline",
+    hoverinfo = "none"
+  ) %>%
+  layout(
+    title = list(text = "Annual global temperature anomalies relative to the pre-industrial period", font = list(size = 16)),
+    xaxis = list(
+      title = "",
+      range = c(1855, 2025),
+      tickvals = x_ticks,
+      ticktext = x_labels,
+      gridcolor = 'lightgrey',
+      showticklabels = TRUE
+    ),
+    yaxis = list(
+      title = "",
+      gridcolor = 'lightgrey',
+      zeroline = FALSE,
+      tickvals = y_ticks,
+      ticktext = y_labels
+    ),
+    hovermode = 'x',
+    showlegend = FALSE,
+    plot_bgcolor = '#fff9e6',
+    paper_bgcolor = '#fff9e6',
+    margin = list(l = 50, r = 50, b = 80, t = 50, pad = 4),
+    hoverlabel = list(
+      bgcolor = "white",
+      font = list(color = "black"),
+      bordercolor = "lightgrey"
+    ),
+    annotations = list(
+      list(
+        x = 1, xref = "paper", xanchor = "right",
+        y = -0.15, yref = "paper", yanchor = "top",
+        text = "Source: Our World in Data (OWID)",
+        showarrow = FALSE,
+        font = list(size = 10, color = "gray")
+      )
+      )
+  )
+
+temp_anomaly_plot
+```
+
+
+---
+
+<style>
+.flexrow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-evenly;
+  gap: 20px;
+}
+.flexrow > div {
+  flex: 1 1 30%;
+  min-width: 300px;
+}
+h3 {
+  text-align: center;
+  font-size: 18px;
+  margin-top: 0.5em;
+  margin-bottom: 0.3em;
+}
+</style>
+
+
+#  22 countries out of 200 contribute 40% to global emissions
+<!-- 1. Global Fuel Mix -->
+<div>
+<h3>Fuel Source Emissions</h3>
+<div style="width:100%">
+
+```{r fuel-dt, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(DT)
+library(scales)
+
+# Your original logic, with display formatting
+global_fuel_mix <- carbon %>%
+  filter(year == 2023, country == "World") %>%
+  summarise(
+    Coal    = coal_co2,
+    Oil     = oil_co2,
+    Gas     = gas_co2,
+    Flaring = flaring_co2
+  ) %>%
+  pivot_longer(cols = everything(),
+               names_to = "Source",
+               values_to = "CO2") %>%
+  mutate(
+    `CO2 Emissions (Mt)` = formatC(CO2, format = "f", big.mark = ",", digits = 1),
+    `% of Total` = paste0(round(CO2 / sum(CO2) * 100, 1), "%")
+  ) %>%
+  select(Source, `CO2 Emissions (Mt)`, `% of Total`)
+
+datatable(global_fuel_mix,
+          options = list(dom = 't', pageLength = 5),
+          rownames = FALSE)
+
+```
+
+</div> </div> <!-- 2. Emissions Inequality --> <div> <h3>Emissions Inequality</h3> <div style="width:100%"> 
+```{r inequality_dt, echo=FALSE, results='asis'}
+country23 <- carbon %>% 
+  filter(year==2023, !is.na(iso_code), nchar(iso_code)==3,
+         is.finite(co2_per_capita))
+
+# rank countries by per‑capita emissions
+country23 <- country23 %>% arrange(desc(co2_per_capita))
+n_countries <- nrow(country23)
+top_cut    <- ceiling(0.10 * n_countries)
+bottom_cut <- floor(0.50 * n_countries)
+
+ineq_tbl <- tibble(
+  Group = c("Top 10 % countries", "Bottom 50 % countries"),
+  `Number of countries` = c(top_cut, bottom_cut),
+  `Share of CO₂ per cap` = c(
+     round(sum(country23$co2_per_capita[1:top_cut]) /
+           sum(country23$co2_per_capita) * 100, 1),
+     round(sum(country23$co2_per_capita[(n_countries-bottom_cut+1):n_countries]) /
+           sum(country23$co2_per_capita) * 100, 1))
+)
+
+datatable(ineq_tbl,
+          colnames = c("Group", "No of Countries", "% of Global Per‑Cap CO₂"),
+          options  = list(dom = 't', pageLength = 5),
+          rownames = FALSE)
+
+```
+---
+<!-- 3. Outliers -->
+<div>
+<div style="width:100%">
+
+#Energy producing nations lead global emissions
+```{r co2-outliers, echo=FALSE, results='asis'}
+library(DT)
+
+outliers_tbl <- bind_rows(
+  tibble(Group = "Top 5 Emitters",
+         carbon %>%
+           filter(year == 2023, !is.na(iso_code), nchar(iso_code) == 3) %>%
+           arrange(desc(co2_per_capita)) %>%
+           select(Country = country, `CO₂ per capita (t)` = co2_per_capita) %>%
+           head(5)),
+  tibble(Group = "Bottom 5 Emitters",
+         carbon %>%
+           filter(year == 2023, !is.na(iso_code), nchar(iso_code) == 3,
+                  co2_per_capita > 0) %>%
+           arrange(co2_per_capita) %>%
+           select(Country = country, `CO₂ per capita (t)` = co2_per_capita) %>%
+           head(5))
+)
+
+datatable(outliers_tbl,
+          options = list(dom = 't', pageLength = 10),
+          rownames = FALSE)
+```
+
+
+
+---
+#Global North dominates per capita Emissions
+
+
+```{r share_10, include=FALSE}
+# Assume carbon_country is already filtered for 2023 + valid CO2 per capita
+carbon_country <- carbon %>%
+  filter(
+    year == 2023,
+    !is.na(iso_code),
+    nchar(iso_code) == 3,
+    !is.na(co2),
+    is.finite(co2)
+  )
+
+# Get top 10% of countries by co2_per_capita
+cutoff <- quantile(carbon_country$co2, 0.9)
+
+top_10 <- carbon_country %>%
+  filter(co2 >= cutoff)
+
+share_top_10 <- sum(top_10$co2) / sum(carbon_country$co2)
+print(share_top_10)
+```
+
+
+```{r map-slide, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+library(plotly)
+library(dplyr)
+
+# --- Prepare data ---
+carbon_map <- carbon %>% 
+  filter(
+    year == 2023,
+    !is.na(iso_code), nchar(iso_code) == 3,
+    !is.na(co2_per_capita), is.finite(co2_per_capita),
+    !iso_code %in% c("OWID_WRL", "OWID_INT", "OWID_KOS")
+  ) %>%
+  mutate(z_log = log10(co2_per_capita))
+
+# --- Custom color scale ---
+viridis_orange_red <- list(
+  list(0,   "#440154"),
+  list(0.25,"#31688e"),
+  list(0.50,"#35b779"),
+  list(0.75,"orange"),
+  list(1,   "red")
+)
+
+# --- Enlarged, centered plot ---
+plot_ly(
+  data        = carbon_map,
+  type        = "choropleth",
+  locations   = ~iso_code,
+  z           = ~z_log,
+  text        = ~paste(country, "<br>CO₂ per capita:", round(co2_per_capita, 2), "t"),
+  hoverinfo   = "text",
+  colorscale  = viridis_orange_red,
+  marker      = list(line = list(color = "#fff9e6", width = 0.3)),
+  colorbar    = list(
+    title       = "tons / person",
+    orientation = "h",
+    len         = 0.9,
+    x           = 0.5,
+    xanchor     = "center",
+    y           = 0.2,
+    tickvals    = log10(c(0.1, 1, 5, 10, 20)),
+    ticktext    = c("0.1", "1", "5", "10", "20")
+  )
+) %>%
+layout(
+  autosize = TRUE,
+  height = 580,  # Increase map height
+  width = 850 ,
+  margin = list(l = 0, r = 0, t = 0, b = 0),
+  geo = list(
+    projection      = list(type = "equirectangular"),
+    showframe       = FALSE,
+    showcoastlines  = FALSE,
+    bgcolor         = "#fdf6e3",
+    center          = list(lat = 10, lon = 0), # optional: center globe
+    fitbounds       = "locations"
+  ),
+  paper_bgcolor = "#fdf6e3",
+  plot_bgcolor  = "#fdf6e3",
+  annotations = list(
+    list(
+      text = "Small nations not rendered • Source: Our World in Data (2024)",
+      x = 0.5,
+      y = 0.05,
+      xref = "paper",
+      yref = "paper",
+      showarrow = FALSE,
+      font = list(size = 10, color = "gray")
+    )
+  )
+)
+
+
+``` 
+
+```{r world v5, include=FALSE}
+library(plotly)
+
+# --- clean data ----------------------------------------------------------
+carbon_map <- carbon %>%
+  filter(year == 2023,
+         !is.na(iso_code),
+         nchar(iso_code) == 3,
+         !is.na(co2_per_capita),
+         is.finite(co2_per_capita),
+         !iso_code %in% c("OWID_WRL", "OWID_INT", "OWID_KOS")) %>%
+  mutate(
+    z_log = log10(co2_per_capita)       # new variable for colouring
+  )
+
+# colour stops (Viridis‑ish → orange → red)
+viridis_orange_red <- list(
+  list(0,   "#440154"),   # dark purple
+  list(0.25,"#31688e"),   # blue
+  list(0.50,"#35b779"),   # green   (~1‑3 t)
+  list(0.75,"orange"),    # orange  (~6‑10 t)
+  list(1,   "red")        # red     (>15 t)
+)
+
+# map ---------------------------------------------------------------------
+plot_ly(
+  data        = carbon_map,
+  type        = "choropleth",
+  locations   = ~iso_code,
+  z           = ~z_log,                   # <<< log colour variable
+  text        = ~paste(country,
+                       "<br>CO₂ per capita:",
+                       round(co2_per_capita, 2), "tons"),
+  hoverinfo   = "text",
+  colorscale  = viridis_orange_red,
+  marker      = list(line = list(color = "#fff9e6", width = 0.3)),
+  colorbar    = list(
+    title       = "Tons / person",
+    # ticks in *original* units, but positioned by their log10 value
+    tickvals    = log10(c(0.1, 1, 5, 10, 20)),
+    ticktext    = c("0.1", "1", "5", "10", "20"),
+    len         = 0.8,      # 90 % of figure height
+    y           = 1,      # centred vertically
+    thickness   = 20        # wider bar for readability
+  )
+) %>%
+  layout(
+    geo = list(showframe = FALSE,
+               showcoastlines = FALSE,
+               projection = list(type = "equirectangular"),
+               bgcolor = "#fdf6e3"),      # cream around oceans if desired
+    paper_bgcolor = "#fdf6e3",
+    plot_bgcolor  = "#fdf6e3",
+    margin = list(l = 0, r = 0, t = 40, b = 0),
+    title  = list(text = "CO₂ per Capita by Country (2023)",
+                  font = list(size = 16))
+  )
+
+
+```
+---
+
+# Per capita emissions rise as countries become more wealthy
+
+```{r bigchungus, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+library(ggplot2)
+library(plotly)
+library(dplyr)
+
+# Format pop labels
+format_population <- function(pop) {
+  case_when(
+    pop >= 1e9 ~ paste0(round(pop/1e9, 1), "B"),
+    pop >= 1e6 ~ paste0(round(pop/1e6, 1), "M"),
+    pop >= 1e3 ~ paste0(round(pop/1e3, 1), "K"),
+    TRUE ~ as.character(pop)
+  )
+}
+
+# Filter and prep data
+plot_data <- combined_data %>%
+  filter(year == 2023, 
+         !is.na(co2_per_capita), 
+         !is.na(gdp_per_capita),
+         gdp_per_capita > 0,
+         co2_per_capita > 0,
+         !country %in% c("World", "North America","Africa", "Asia", "Europe", 
+                         "South America", "Oceania", "European Union (27)",
+                         "High-income countries", "Upper-middle-income countries",
+                         "Lower-middle-income countries", "Low-income countries"))
+
+# Base ggplot
+p <- ggplot(plot_data, 
+            aes(x = gdp_per_capita, y = co2_per_capita)) +
+  geom_point(aes(colour = country, size = population,
+                 text = paste0(
+                   "<b>", country, "</b><br>",
+                   "CO₂ per capita: ", round(co2_per_capita, 1), " tonnes<br>",
+                   "Population: ", format_population(population), "<br>",
+                   "GDP per capita: $", format(round(gdp_per_capita), big.mark = ","))),
+             alpha = 0.7) +
+  geom_smooth(method = "lm", formula = y ~ x, 
+              color = "red", se = FALSE, size = 1.2) +
+  scale_x_log10(labels = scales::dollar_format()) +
+  scale_y_log10(breaks = c(0.1, 0.5, 1, 2, 5, 10, 20, 50, 100)) +
+  scale_size_continuous(range = c(1, 15),
+                        breaks = c(1e6, 1e7, 1e8, 1e9),
+                        labels = c("1M", "10M", "100M", "1B")) +
+  labs(
+    subtitle = "Log-log scale with regression line (red)",
+    x = "GDP per capita (international-$ in 2023 prices)",
+    y = "Annual CO₂ emissions (Tonnes per capita)",
+    caption = "Data source: Our World in Data & World Bank"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "none")
+
+# Plotly version with styling
+ggplotly(p, tooltip = "text") %>%
+  layout(
+    width = 900,
+    height = 450,
+    paper_bgcolor = "#fdf6e3",
+    plot_bgcolor = "#fdf6e3",
+    hoverlabel = list(
+      bgcolor = "#fff9e6",
+      font = list(size = 11, family = "Times New Roman", color = "black"),
+      bordercolor = "gray"
+    ),
+    font = list(size = 12, family = "Times New Roman"),
+    margin = list(l = 60, r = 20, t = 60, b = 60),
+    annotations = list(
+      list(
+        text = "Note: Both axes on logarithmic scale",
+        xref = "paper", yref = "paper",
+        x = 0, y = -0.15, showarrow = FALSE,
+        font = list(size = 10, color = "gray")
+      )
+    )
+  )
+
+```
+---
+
+
+#There is a clear <em>log-linear</em> relationship between emissions and income.
+ 
+
+```{r regress, results='asis', include=FALSE}
+library(stargazer)
+library(broom)
+
+regress_model <- combined_data %>%
+  filter(year == 2023, 
+         !is.na(co2_per_capita), 
+         !is.na(gdp_per_capita),
+         gdp_per_capita > 0,
+         co2_per_capita > 0,
+         !country %in% c("World", "North America","Africa", "Asia", "Europe", 
+                        "South America", "Oceania", "European Union (27)",
+                        "High-income countries", "Upper-middle-income countries",
+                        "Lower-middle-income countries", "Low-income countries"))
+
+# Calculate correlation coefficients
+spearman_corr <- cor(regress_model$gdp_per_capita, regress_model$co2_per_capita, 
+                    use = "complete.obs", method = "spearman")
+kendall_corr <- cor(regress_model$gdp_per_capita, regress_model$co2_per_capita, 
+                   use = "complete.obs", method = "kendall")
+pearson_corr <- cor(regress_model$gdp_per_capita, regress_model$co2_per_capita, 
+                   use = "complete.obs", method = "pearson")
+
+# Fit linear model on log-transformed data
+model <- lm(log10(co2_per_capita) ~ log10(gdp_per_capita), data = regress_model)
+
+# For presentations, use HTML output with custom styling
+stargazer(model, 
+          type = "html",
+          title = "Regression Results<br>Log(CO₂ per capita) vs Log(GDP per capita)",
+          dep.var.labels = "Log(CO₂ per capita)",
+          covariate.labels = "Log(GDP per capita)",
+          star.cutoffs = c(0.05, 0.01, 0.001),
+          notes = c("Note: *p<0.05; **p<0.01; ***p<0.001",
+                   paste0("Spearman ρ = ", round(spearman_corr, 3), 
+                         "; Kendall τ = ", round(kendall_corr, 3),
+                         "; Pearson r = ", round(pearson_corr, 3))),
+          notes.append = FALSE,
+          header = FALSE,
+          single.row = TRUE,  # Put coefficients and SEs on same row
+          table.placement = "H",
+          font.size = "small")
+```
+
+```{r table}
+library(tibble)
+library(knitr)
+library(kableExtra)
+library(htmltools)
+
+reg_tbl <- tibble(
+  Variable = c("Log(GDP per capita)", "Constant"),
+  Estimate = c("1.103", "-4.329"),
+  `Std. Error` = c("0.042", "0.178"),
+  `p-value` = c("<0.001 ***", "<0.001 ***")
+)
+
+reg_tbl_html <- paste0(
+  "<div style='font-size: 24px; font-weight: bold; margin-bottom: 8px;'>Regression Coefficients</div>",
+  kable(reg_tbl, "html", align = "lccc") %>%
+    kable_styling(full_width = FALSE, font_size = 16, bootstrap_options = c("striped", "hover")) %>%
+    row_spec(0, bold = TRUE)
+)
+
+model_stats <- tibble(
+  `Model Stat` = c("Observations", "R²", "Adjusted R²", 
+                   "Residual Std. Error", "F Statistic"),
+  Value = c("172", "0.804", "0.803", "0.278 (df = 170)", "697.880*** (df = 1; 170)")
+)
+
+model_tbl_html <- paste0(
+  "<div style='font-size: 24px; font-weight: bold; margin: 30px 0 8px;'>Model Fit Statistics</div>",
+  kable(model_stats, "html", align = "lc") %>%
+    kable_styling(full_width = FALSE, font_size = 16, bootstrap_options = c("striped", "hover")) %>%
+    row_spec(0, bold = TRUE)
+)
+
+
+corr_tbl <- tibble(
+  `Correlation Method` = c("Pearson’s (r)", "Spearman’s (ρ)", "Kendall’s (τ)"),
+  Estimate = c("0.65", "0.876", "0.70"),
+  `p-value` = c("<0.001", "<0.001", "<0.001")
+)
+
+corr_tbl_html <- paste0(
+  "<div style='font-size: 24px; font-weight: bold; margin-bottom: 8px;'>Correlation Coefficients</div>",
+  kable(corr_tbl, "html", align = "lcc") %>%
+    kable_styling(full_width = FALSE, font_size = 16, bootstrap_options = c("striped", "hover")) %>%
+    row_spec(0, bold = TRUE)
+)
+
+HTML(
+  paste0(
+    "<div style='display: flex; justify-content: space-between;'>",
+    
+      
+      "<div style='flex: 0.6; padding-right: 30px;'>",
+        reg_tbl_html, "<br>", model_tbl_html,
+        "<div style='font-size: 20px; margin-top: 25px;'> ",
+        "log(CO₂ per capita) = 1.103 × log(GDP per capita) − 4.329</div>",
+      "</div>",
+      
+      
+      "<div style='flex: 0.4;'>",
+        corr_tbl_html,
+        "<div style='font-size: 20px; margin-top: 30px;'>",
+        "<strong>Interpretation:</strong><ul>",
+        "<li>GDP per capita and CO₂ per capita are strongly correlated; economic growth has historically required greenhouse gas emissions.</li>",
+        "</ul></div>",
+      "</div>",
+      
+    "</div>"
+  )
+)
+
+```
+
+
+---
+# Residuals follow a Normal distribution
+
+
+```{r shapiro,  results='asis'}
+
+qq <- ggplot(mapping = aes(sample = residuals(model))) +
+  stat_qq() + stat_qq_line(color = "red") +
+  labs(title = "QQ Plot of Regression Residuals") +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.background = element_rect(fill = "#fdf6e3", color = NA),
+    panel.background = element_rect(fill = "#fdf6e3", color = NA),
+    plot.title = element_text(face = "bold")
+  )
+
+ggsave("images/qqplot.png", qq, width = 5, height = 4, bg = "transparent")
+
+# Run Shapiro-Wilk test
+shapiro_out <- shapiro.test(residuals(model))
+shapiro_tbl <- tibble(
+  Statistic = round(shapiro_out$statistic, 3),
+  `p-value` = format(round(shapiro_out$p.value, 5), scientific = FALSE)
+)
+
+# Format table
+shapiro_table_html <- shapiro_tbl %>%
+  kable(format = "html", align = "c") %>%
+  kable_styling(full_width = FALSE, font_size = 18, position = "center") %>%
+  add_header_above(c("Shapiro–Wilk Test" = 2), bold = TRUE, font_size = 22) %>%
+  row_spec(0, bold = TRUE)
+
+# Output custom HTML layout
+cat("
+<div style='display: flex; justify-content: space-around; align-items: flex-start;'>
+  <div style='flex: 1; text-align: center;'>
+    <img src='images/qqplot.png' style='max-width: 100%; height: auto;' />
+  </div>
+  <div style='flex: 1; padding-left: 2em;'>", 
+    shapiro_table_html, 
+  "</div>
+</div>
+
+<div style='font-size:16pt; margin-top: 2em; line-height: 1.5;'>
+  <strong>Key Points:</strong>
+  <ul>
+    <li>The residuals pass the Shapiro–Wilk test (<em>p</em> = ", shapiro_tbl$`p-value`, "), indicating no significant departure from normality.</li>
+    <li>This supports the validity of the <em>log–log linear model</em>, as normality of residuals is an assumption for inference.</li>
+  </ul>
+</div>
+")
+
+```
+
+
+```{r regress_1, results='asis' , include=FALSE}
+library(stargazer)
+library(broom)
+
+regress_model <- combined_data %>%
+  filter(year == 2023, 
+         !is.na(co2_per_capita), 
+         !is.na(gdp_per_capita),
+         gdp_per_capita > 0,
+         co2_per_capita > 0,
+         !country %in% c("World", "North America","Africa", "Asia", "Europe", 
+                        "South America", "Oceania", "European Union (27)",
+                        "High-income countries", "Upper-middle-income countries",
+                        "Lower-middle-income countries", "Low-income countries"))
+
+# Fit linear model on log-transformed data
+model <- lm(log10(co2_per_capita) ~ log10(gdp_per_capita), data = regress_model)
+
+# For presentations, use HTML output with custom styling
+stargazer(model, 
+          type = "html",
+          title = "Log(CO₂ per capita) vs Log(GDP per capita)",
+          dep.var.labels = "Log(CO₂ per capita)",
+          covariate.labels = "Log(GDP per capita)",
+          star.cutoffs = c(0.05, 0.01, 0.001),
+          notes = "Note: *p<0.05; **p<0.01; ***p<0.001",
+          notes.append = FALSE,
+          header = FALSE,
+          single.row = TRUE,  # Put coefficients and SEs on same row
+          table.placement = "H",
+          font.size = "small")
+```
+
+---
+# Political Will Is Key to Decoupling
+
+
+- Higher GDP per capita is associated with higher CO₂ emissions per capita
+
+- Economic growth is tightly linked to emissions: a **1% increase in GDP per capita** leads to a **1.103% increase in CO₂ emissions per capita**.
+
+
+### Future Work 
+
+- Examine broader drivers of emissions, including energy use, renewable energy share, industrial activity, and trade patterns.
+
+- We need **robust, enforceable climate accords**—**there is no planet B**. Without stronger global cooperation, small nations like **Tuvalu** risk submersion, and the world faces irreversible damage.
+---
+
+# Data Sources and AI declaration
+
+##Data Sources: 
+
+<ul>
+  <li>
+    <strong>Our World in Data CO₂ and Energy Database:</strong>
+    <a href="https://github.com/owid/co2-data" target="_blank">https://github.com/owid/co2-data</a>
+  </li>
+  <li>
+    <strong>OWID Global Temperature Anomaly Data:</strong>
+    <a href="https://ourworldindata.org/grapher/temperature-anomaly" target="_blank">https://ourworldindata.org/grapher/temperature-anomaly</a>
+  </li>
+  <li>
+    <strong>World Bank GDP per capita (PPP-adjusted):</strong>
+    <a href="https://data.worldbank.org/indicator/NY.GDP.PCAP.PP.CD" target="_blank">https://data.worldbank.org/indicator/NY.GDP.PCAP.PP.CD</a>
+  </li>
+  <li>
+    <strong>IMF PPP GDP Estimates:</strong>
+    <a href="https://www.imf.org/external/datamapper/PPPPC@WEO/OEMDC/ADVEC/WEOWORLD" target="_blank">https://www.imf.org/external/datamapper/PPPPC@WEO/OEMDC/ADVEC/WEOWORLD</a>
+  </li>
+</ul>
+
+
+## AI declaration:
+This presentation was prepared by Aiyan Warsi. OpenAI’s ChatGPT was used to assist with the following:
+
+- Converting static ggplots into interactive HTML widgets using plotly.
+
+- Styling the HTML slides, including layout, font formatting, and customizing visual elements to ensure a clean and professional design.
+
+- Formatting support for specific slide elements and CSS to improve visual clarity and structure.
+
